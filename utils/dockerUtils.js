@@ -9,11 +9,10 @@ const docker = new Docker();
 
 export const startContainer = async (socket, language, framework, project) => {
   const imageMap = {
-    nodejs: "node:20-alpine",
-    typescript: "node:20-ts",
-    python: "python:3.12-alpine",
-    java: "openjdk:20",
-    express: "express-runner:latest",
+    nodejs: process.env.NODE_IMAGE || "node:20-alpine",
+    typescript: process.env.TS_IMAGE || "node:20-ts",
+    python: process.env.PYTHON_IMAGE || "python:3.12-alpine",
+    express: process.env.EXPRESS_IMAGE || "express-runner:latest",
     "html-css-js": null,
   };
 

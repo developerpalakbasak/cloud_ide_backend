@@ -5,7 +5,7 @@ import Project from "../models/project.model.js";
 import slugify from "slugify";
 import fse from "fs-extra";
 import catchAsync from "../utils/catchAsync.js";
-import { generateFileTree } from "../utils/generateFileTree.js"; // ✅ don’t forget this
+import { generateFileTree } from "../utils/generateFileTree.js";
 import AppError from "../utils/AppError.js";
 
 const ROOT_VOL_DIR = process.env.ROOT_VOL_DIR;
@@ -14,8 +14,7 @@ export const getTree = catchAsync(async (req, res, next) => {
   const projectDir = path.join(ROOT_VOL_DIR, req.user.username, req.params.project);
   const exists = await fs.stat(projectDir).catch(() => false);
 
-  console.log("get tree")
-
+  console.log("get tree");
 
   if (!exists) return next(new AppError("Project not found", 404));
 
@@ -23,17 +22,26 @@ export const getTree = catchAsync(async (req, res, next) => {
   res.status(200).json({ success: true, tree });
 });
 
+
+/* ============================================================
+   ✅ UPDATED createLanguageProject FUNCTION
+============================================================ */
 export const createLanguageProject = catchAsync(async (req, res, next) => {
   const { name, language } = req.body;
   const user = req.user;
 
-
   if (!language) return next(new AppError("Language is required", 400));
   if (!name) return next(new AppError("Project name is required", 400));
 
+  // 🔥 Ensure ROOT_VOL_DIR exists
+  try {
+    await fse.ensureDir(ROOT_VOL_DIR);
+  } catch (err) {
+    return next(new AppError("Failed to initialize root volume directory", 500));
+  }
+
   let baseSlug = slugify(name, { lower: true, strict: true });
   let slug = baseSlug;
-
   let counter = 1;
 
   while (await Project.findOne({ slug })) {
@@ -43,30 +51,26 @@ export const createLanguageProject = catchAsync(async (req, res, next) => {
 
   const userFolder = path.join(ROOT_VOL_DIR, user.username);
   const projectFolder = path.join(userFolder, slug);
-
   const demoFolder = path.join(ROOT_VOL_DIR, "demo", language || "nodejs");
 
-
-  // default exeScript
   const languageEntryScript = {
     nodejs: "index.js",
     typescript: "src/index.ts",
     python: "main.py",
-    java: "Main.java",   // Java expects the class name to match file name
+    java: "Main.java",
     "c++": "main.cpp",
     go: "main.go",
     php: "index.php",
-
   };
-  const entryFile = languageEntryScript[language]
 
-  console.log(entryFile)
+  const entryFile = languageEntryScript[language];
+  if (!entryFile) return next(new AppError("Unsupported language", 400));
 
   const newProject = new Project({
     owner: user.id,
     name,
     slug,
-    language: language,
+    language,
     status: "stopped",
     entryFile,
     volumePath: projectFolder,
@@ -74,9 +78,16 @@ export const createLanguageProject = catchAsync(async (req, res, next) => {
 
   await newProject.save();
 
+  // 🔥 Ensure user folder exists
   await fse.ensureDir(userFolder);
-  await fse.copy(demoFolder, projectFolder);
 
+  // 🔥 Ensure demo folder exists
+  if (!(await fse.pathExists(demoFolder))) {
+    return next(new AppError(`Demo folder missing for language: ${language}`, 500));
+  }
+
+  // 🔥 Copy demo template → project folder
+  await fse.copy(demoFolder, projectFolder);
 
   res.status(201).json({
     success: true,
@@ -84,6 +95,7 @@ export const createLanguageProject = catchAsync(async (req, res, next) => {
     project: newProject,
   });
 });
+/* ============================================================ */
 
 
 export const deleteProject = catchAsync(async (req, res, next) => {
@@ -104,7 +116,7 @@ export const deleteProject = catchAsync(async (req, res, next) => {
       console.log("Folder deleted:", project.volumePath);
     } catch (err) {
       console.error("Error deleting folder:", err);
-       return next(new AppError("Failed to delete", 401));
+      return next(new AppError("Failed to delete", 401));
     }
   }
   await Project.findByIdAndDelete(id);
@@ -116,12 +128,10 @@ export const deleteProject = catchAsync(async (req, res, next) => {
 });
 
 
-
-
 export const createFrameworkProject = catchAsync(async (req, res, next) => {
   const { name, framework, language } = req.body;
   const user = req.user;
-  console.log(name, framework)
+  console.log(name, framework);
 
   if (!framework) return next(new AppError("Framework is required", 400));
   if (!language) return next(new AppError("Language is required", 400));
@@ -141,20 +151,11 @@ export const createFrameworkProject = catchAsync(async (req, res, next) => {
   const projectFolder = path.join(userFolder, slug);
   const demoFolder = path.join(ROOT_VOL_DIR, "demo", framework);
 
-
-  // default exeScript
   const frameworkEntryScript = {
     express: "node index.js",
-
-    // flask: "python main.py",
-    // django: "python index.py",
-
   };
 
-
-  const entryFile = frameworkEntryScript[framework]
-
-  console.log(entryFile)
+  const entryFile = frameworkEntryScript[framework];
 
   const newProject = new Project({
     owner: user.id,
@@ -172,20 +173,21 @@ export const createFrameworkProject = catchAsync(async (req, res, next) => {
   await fse.ensureDir(userFolder);
   await fse.copy(demoFolder, projectFolder);
 
-
   res.status(201).json({
     success: true,
     message: "Project created successfully",
     slug,
-    project: newProject
+    project: newProject,
   });
 });
 
-export const getAllProject = catchAsync(async (req, res) => {
+
+export const getAllProject = catchAsync(async (req, res, next) => {
   const projects = await Project.find({ owner: req.user.id });
   if (!projects) return next(new AppError("Projects are not found", 404));
   res.status(200).json({ success: true, projects });
 });
+
 
 export const getProjectFromSlug = catchAsync(async (req, res, next) => {
   const { slug } = req.params;
@@ -195,6 +197,7 @@ export const getProjectFromSlug = catchAsync(async (req, res, next) => {
   if (!project) return next(new AppError("Project not found", 404));
   res.status(200).json({ success: true, project });
 });
+
 
 export const getTreeFromSlug = catchAsync(async (req, res, next) => {
   const { slug } = req.params;
@@ -215,6 +218,7 @@ export const getTreeFromSlug = catchAsync(async (req, res, next) => {
 
   res.json({ language, framework, entryFile, tree });
 });
+
 
 export const getFileCodes = catchAsync(async (req, res, next) => {
   const { slug } = req.params;
@@ -244,6 +248,7 @@ export const getFileCodes = catchAsync(async (req, res, next) => {
     content,
   });
 });
+
 
 export const saveMultipleFiles = catchAsync(async (req, res, next) => {
   const { slug } = req.params;
@@ -276,12 +281,11 @@ export const saveMultipleFiles = catchAsync(async (req, res, next) => {
   res.json({ success: true, results });
 });
 
+
 export const deleteSingleFile = catchAsync(async (req, res, next) => {
   const { target } = req.query;
   const { slug } = req.params;
   const { user } = req;
-
-  console.log(target);
 
   if (!target) return next(new AppError("File path is required", 400));
 
@@ -290,7 +294,6 @@ export const deleteSingleFile = catchAsync(async (req, res, next) => {
   const normalizedRoot = path.resolve(ROOT_VOL_DIR);
   const normalizedAbsolute = path.resolve(absolutePath);
 
-  // ✅ Safer check using path.relative
   const relative = path.relative(normalizedRoot, normalizedAbsolute);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     return next(new AppError("Invalid file path", 400));
@@ -320,6 +323,7 @@ export const deleteSingleFile = catchAsync(async (req, res, next) => {
   }
 });
 
+
 export const createNew = catchAsync(async (req, res, next) => {
   const { target, type, name } = req.query;
   const { slug } = req.params;
@@ -336,8 +340,6 @@ export const createNew = catchAsync(async (req, res, next) => {
   );
 
   try {
-    //  Check if the path already exists
-
     const exists = await fse.pathExists(absolutePath);
     if (exists) {
       return res.status(400).json({
@@ -346,7 +348,6 @@ export const createNew = catchAsync(async (req, res, next) => {
       });
     }
 
-    // Create new folder or file
     if (type === "folder") {
       await fse.ensureDir(absolutePath);
     } else if (type === "file") {
@@ -368,12 +369,10 @@ export const createNew = catchAsync(async (req, res, next) => {
 });
 
 
-// restricted router only-owner 
 export const editEntryFile = catchAsync(async (req, res, next) => {
   const { entryFile } = req.body;
   const { slug } = req.params;
   const { user } = req;
-
 
   const project = await Project.findOneAndUpdate(
     { owner: user.id, slug },
@@ -386,7 +385,4 @@ export const editEntryFile = catchAsync(async (req, res, next) => {
     success: true,
     message: "Script updated",
   });
-
 });
-
-
