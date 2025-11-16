@@ -13,6 +13,7 @@ const docker = new Docker();
  * @returns {Promise<Docker.Container>}
  */
 export default async function runFrameworkContainer({ dockerImage, containerName, username, project, port = 8000 }) {
+
   const container = await docker.createContainer({
     Image: dockerImage,
     name: containerName,
@@ -22,8 +23,17 @@ export default async function runFrameworkContainer({ dockerImage, containerName
     Env: ["NODE_ENV=production"],
     Labels: {
       "traefik.enable": "true",
-      [`traefik.http.routers.${containerName}.rule`]: `Host("${containerName}.docker.localhost")`,
+      [`traefik.http.routers.${containerName}.rule`]: `PathPrefix("/${containerName}")`,
+
       [`traefik.http.services.${containerName}.loadbalancer.server.port`]: `${port}`,
+
+      // Add StripPrefix middleware
+      [`traefik.http.routers.${containerName}.middlewares`]:
+        `${containerName}-strip`,
+
+      [`traefik.http.middlewares.${containerName}-strip.stripprefix.prefixes`]:
+        `/${containerName}`,
+        
     },
     HostConfig: {
       NetworkMode: "traefik_net",

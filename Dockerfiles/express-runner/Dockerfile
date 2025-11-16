@@ -10,3 +10,6 @@ EXPOSE 8000
 
 # Keep container alive
 CMD ["sh", "-c", "tail -f /dev/null"]
+
+
+

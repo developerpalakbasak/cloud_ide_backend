@@ -10,13 +10,14 @@ export async function runTraefik() {
   const containerName = "traefik";
 
   const TRAEFIK_PORT = process.env.TRAEFIK_HOST_PORT || "80";
+  const DASHBOARD_PORT = process.env.TRAEFIK_DASHBOARD_PORT || "8080"
 
   const containers = await docker.listContainers({ all: true });
   const existing = containers.find(c => c.Names.includes(`/${containerName}`));
 
   if (existing) {
     const container = docker.getContainer(existing.Id);
-    await container.start().catch(() => {});
+    await container.start().catch(() => { });
     // console.log("Traefik container already exists. Started if it was stopped.");
     return container;
   }
@@ -29,7 +30,10 @@ export async function runTraefik() {
     Cmd: [
       `--entrypoints.web.address=:${TRAEFIK_PORT}`,
       "--providers.docker",
-      "--api=false" 
+      // `--entrypoints.websecure.address=:443`,
+      // "--api.insecure=true",     // Enable dashboard without authentication
+      // "--api.dashboard=true" 
+      "--api=false"                 //safety disable dashboard 
     ],
 
     HostConfig: {
@@ -37,12 +41,14 @@ export async function runTraefik() {
       Binds: ["/var/run/docker.sock:/var/run/docker.sock"],
 
       PortBindings: {
-        [`${TRAEFIK_PORT}/tcp`]: [{ HostPort: TRAEFIK_PORT }]
+        [`${TRAEFIK_PORT}/tcp`]: [{ HostPort: TRAEFIK_PORT }],
+        [`${DASHBOARD_PORT}/tcp`]: [{ HostPort: DASHBOARD_PORT }]
       }
     },
 
     ExposedPorts: {
-      [`${TRAEFIK_PORT}/tcp`]: {}
+      [`${TRAEFIK_PORT}/tcp`]: {},
+      [`${DASHBOARD_PORT}/tcp`]: {}
     }
   });
 
