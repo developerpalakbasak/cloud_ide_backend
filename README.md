@@ -12,6 +12,8 @@ Each project runs inside its **own Docker container**, giving users the ability 
 
 Deployed at: **http://103.174.51.218**
 
+> **Note:** Currently Google and GitHub Sign-In are disabled because the domain name is not added yet.
+
 ---
 
 ## 🚀 Live Demo
