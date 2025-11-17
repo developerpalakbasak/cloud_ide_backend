@@ -61,7 +61,7 @@ Every project runs in its own container:
 Each project has:
 
 - Its own workspace directory  
-- Its own Docker container (`ide_<username>_<project>`)  
+- Its own Docker container (`<projects_unique_slug>_<username>`)  
 - Its own shell (`sh` inside container)  
 - Its own mapped port for running dev servers  
 
