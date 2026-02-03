@@ -4,17 +4,19 @@ import getRunningContainers from "./helper_fns/runningContainers.js";
 import { runTraefik } from "./helper_fns/runTraefik.js";
 import { pullDockerImage } from "./helper_fns/pullDockerImage.js";
 import runFrameworkContainer from "./helper_fns/runFrameworkContainer.js";
+import imageMap from "./helper_fns/dockerImage.js";
+import buildRunner from "../Dockerfiles/index.js";
 
 const docker = new Docker();
 
 export const startContainer = async (socket, language, framework, project) => {
-  const imageMap = {
-    nodejs: process.env.NODE_IMAGE || "node:20-alpine",
-    typescript: process.env.TS_IMAGE || "node:20-ts",
-    python: process.env.PYTHON_IMAGE || "python:3.12-alpine",
-    express: process.env.EXPRESS_IMAGE || "express-runner:latest",
-    "html-css-js": null,
-  };
+  // const imageMap = {
+  //   nodejs: process.env.NODE_IMAGE || "node:20-alpine",
+  //   typescript: process.env.TS_IMAGE || "node:20-ts",
+  //   python: process.env.PYTHON_IMAGE || "python:3.12-alpine",
+  //   express: process.env.EXPRESS_IMAGE || "express-runner:latest",
+  //   "html-css-js": null,
+  // };
 
   const dockerImage = framework ? imageMap[framework] : imageMap[language];
 
@@ -33,11 +35,10 @@ export const startContainer = async (socket, language, framework, project) => {
       const runningContainers = await getRunningContainers();
       const runningContainerImages = runningContainers.map(container => container.image);
       const hasTraefik = runningContainerImages.some(image => image.includes('traefik'));
-
       // if traefik not running
       if (!hasTraefik) {
 
-        const dockerImage = "traefik:v3"
+        const dockerImage = process.env.TRAEFIK_IMAGE
         // need to start/create traefik container
         const images = await docker.listImages();
         const imageExists = images.some(img =>
@@ -77,7 +78,13 @@ export const startContainer = async (socket, language, framework, project) => {
 
     if (!imageExists) {
       console.log(`⬇️ Pulling Docker image: ${dockerImage}...`);
-      await pullDockerImage(dockerImage)
+      // build image
+      if (Object.values(imageMap).includes(dockerImage)) {
+        await buildRunner();
+      } else {
+        await pullDockerImage(dockerImage);
+      }
+
       console.log(`✅ Docker image pulled: ${dockerImage}`);
     }
 

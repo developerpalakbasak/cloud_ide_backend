@@ -2,22 +2,40 @@ import Docker from "dockerode";
 
 const docker = new Docker();
 
-// Make it an async function since docker.listContainers is async
 async function getRunningContainers() {
     try {
+        // List all containers
         const containers = await docker.listContainers({ all: true });
 
-        return containers.map(container => ({
-            id: container.Id,
-            name: container.Names[0].replace('/', ''), // Remove leading slash
-            image: container.Image,
-            status: container.State
-        }));
+        // Delete exited containers
+        for (const container of containers) {
+            if (container.State === "exited") {
+                try {
+                    const c = docker.getContainer(container.Id);
+                    await c.remove();
+                    console.log(`Removed exited container: ${container.Names[0]}`);
+                } catch (err) {
+                    console.error(`Failed to remove container ${container.Names[0]}:`, err.message);
+                }
+            }
+        }
+
+        // Return only running containers
+        const runningContainers = containers
+            .filter(container => container.State === "running")
+            .map(container => ({
+                id: container.Id,
+                name: container.Names[0].replace('/', ''),
+                image: container.Image,
+                status: container.State
+            }));
+
+        return runningContainers;
+
     } catch (error) {
         console.error('Error fetching containers:', error);
         return [];
     }
 }
 
-// Export the function
 export default getRunningContainers;

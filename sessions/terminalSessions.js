@@ -4,6 +4,7 @@ import isEchoOfInput from "../utils/helper_fns/isEachoOfInput.js";
 import stripAnsi from "strip-ansi";
 
 let lastInput = "";
+let currentDir = "";
 
 function createHandleTerminalOutput(socket, project) {
     let lastOutput = "";
@@ -20,28 +21,21 @@ function createHandleTerminalOutput(socket, project) {
             return
         }
 
-        ////////////////////////
+        const cleaned = stripAnsi(output);
+        const lines = cleaned.split("\n");
 
-        // const terminalOutput = stripAnsi(output.toString());
+        for (const line of lines) {
+            const trimmed = line.trim();
 
-        // let parsedOutput;
-        // try {
-        //     parsedOutput = eval(`(${terminalOutput})`); // dangerous but works if you trust the output
-        // } catch {
-        //     parsedOutput = { success: false, message: terminalOutput };
-        // }
+            // Detect prompt lines like "/usr/src/app #"
+            const match = trimmed.match(/^([\/~A-Za-z0-9._-]+)\s*#$/);
 
-        // const { success, message } = parsedOutput;
+            if (match) {
+                currentDir = match[1];
+            }
+        }
 
-
-        // if (success && message == "Example app listening on port 8000") {
-        //     socket.emit("serverStatus", { running: true, liveServer: `http://${project}_${socket.user.username}.${process.env.SERVER_HOST_PREFIX}` });
-        // }
-
-
-        /////////////////////////
         if (output.length > 0) {
-
             if (lastOutput.toString() !== output.toString()) {
                 socket.emit("terminalOutput", { output });
                 lastOutput = output
@@ -53,8 +47,6 @@ function createHandleTerminalOutput(socket, project) {
         return
     };
 }
-
-
 
 function handleTerminalDisconnect(terminalSessions, socket, key) {
     socket.on("disconnect", () => {
@@ -72,46 +64,27 @@ function handleTerminalDisconnect(terminalSessions, socket, key) {
     });
 }
 
-function isRestrictedCmd(command) {
-    if (!command) return false;
+function checkIsInsideAppDir(path) {
+    const normalizedPath = path.replace(/\/+$/, ""); // remove trailing slash
+    const basePath = "/usr/src/app";
+    return normalizedPath === basePath || normalizedPath.startsWith(basePath + "/");
+}
 
-    // Protection levels
-    const fileProtection = {
-        "app.log": "noAccess",
-        "nodemon.pid": "noAccess",
-        "restart.sh": "noAccess",
-        "index.js": "noDelete",
-        "package-lock.json": "noDelete",
-        "start.sh": "noAccess",
-        "package.json": "noDelete",
-        "stop.sh": "noAccess"
-    };
 
-    // Commands that delete or move/copy files
-    const dangerousCmds = ["rm", "del", "mv", "cp"];
 
-    const parts = command.trim().split(/\s+/);
-    const cmd = parts[0].toLowerCase();
+const protectedFiles = [
+  "index.js",
+  "package.json",
+  "restart.sh",
+  "start.sh",
+  "stop.sh"
+];
 
-    for (let i = 1; i < parts.length; i++) {
-        const arg = parts[i].toLowerCase();
-
-        if (!fileProtection[arg]) continue;
-
-        const protection = fileProtection[arg];
-
-        if (protection === "noAccess") {
-            // block any command
-            return true;
-        }
-
-        if (protection === "noDelete" && dangerousCmds.includes(cmd)) {
-            // block only deletion/move/copy
-            return true;
-        }
-    }
-
-    return false; // allowed
+function isDeletingProtectedFile(input) {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith("rm")) return false;
+  const parts = trimmed.split(/\s+/).slice(1);
+  return parts.some(part => protectedFiles.includes(part));
 }
 
 
@@ -125,17 +98,42 @@ function handleTerminalInput(socket, stream) {
 
     socket.on("terminalInput", ({ input }) => {
         if (!input) return;
-        // const isDengerousCmd = isRestrictedCmd(input)
 
-        // if (isDengerousCmd) {
-        //     socket.emit("isDengerousCmd", { success: false, message: "permission denied" });
-        //     return
-        // }
+        const isInsideAppDir = checkIsInsideAppDir(currentDir);
+        const isRestrictedCmd = isDeletingProtectedFile(input);
+
+        console.log(isRestrictedCmd)
+
         const cmd = `${input}\n`;
         const now = Date.now();
 
-        // Prevent duplicate input within 100ms
         if (cmd === lastInput && now - lastInputTime < 100) return;
+
+        const trimmed = input.trim();
+        const isAllowedOutside =
+            trimmed === "ls" || trimmed.startsWith("ls ") ||
+            trimmed === "cd" || trimmed.startsWith("cd ");
+
+        if (isRestrictedCmd) {
+            socket.emit("terminalOutput", {
+                output: "!Failed, You can delete only your creations.\r\n"
+            });
+            socket.emit("terminalOutput", {
+                output: `${currentDir} # `
+            });
+            return;
+        }
+        if (!isInsideAppDir && !isAllowedOutside) {
+            socket.emit("terminalOutput", {
+                output: "!Failed, You can only run commands inside /usr/src/app.\r\n"
+            });
+            socket.emit("terminalOutput", {
+                output: `${currentDir} # `
+            });
+            return;
+        }
+
+
 
         lastInput = cmd;
         lastInputTime = now;
@@ -143,8 +141,6 @@ function handleTerminalInput(socket, stream) {
         stream.write(cmd);
     });
 }
-
-
 
 function handleTerminalResize(socket, terminalSessions, key) {
     let lastResize = { cols: null, rows: null };
@@ -198,7 +194,6 @@ export const startTerminalSession = async (container, socket, key, project) => {
         return session;
     }
 
-
     const exec = await container.exec({
         Cmd: ["/bin/sh"],
         AttachStdin: true,
@@ -222,9 +217,7 @@ export const startTerminalSession = async (container, socket, key, project) => {
         null
     );
 
-
     handleTerminalDisconnect(terminalSessions, socket, key)
-
 
     // Store session for reuse
     const session = { exec, stream, container };

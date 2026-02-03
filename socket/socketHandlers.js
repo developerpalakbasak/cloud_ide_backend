@@ -104,7 +104,7 @@ export const handleStartServer = async (socket, userContainers, data) => {
 
         exec.start({ hijack: true, stdin: false }, (err, stream) => {
             if (err) throw err;
-            socket.emit("serverStatus", { running: true, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}:${process.env.TRAEFIK_HOST_PORT}/${data.project}_${socket.user.username}` });
+            socket.emit("serverStatus", { running: true, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}` });
         });
 
 
@@ -134,12 +134,12 @@ export const handleRestartServer = async (socket, userContainers, data) => {
             console.log("Server restarted successfully");
             socket.emit("serverStatus", {
                 running: true,
-                liveServer:`${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}:${process.env.TRAEFIK_HOST_PORT}/${data.project}_${socket.user.username}`,
+                liveServer:`${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}`,
             });
         });
     } catch (error) {
         console.error("Error restarting container:", error);
-        socket.emit("serverStatus", { running: false, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}:${process.env.TRAEFIK_HOST_PORT}/${data.project}_${socket.user.username}` });
+        socket.emit("serverStatus", { running: false, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}` });
     }
 };
 
@@ -159,7 +159,7 @@ export const handleStopServer = async (socket, userContainers, data) => {
         exec.start({ hijack: true, stdin: false }, (err, stream) => {
             if (err) {
                 console.error("Stop failed:", err);
-                socket.emit("serverStatus", { running: true, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}:${process.env.TRAEFIK_HOST_PORT}/${data.project}_${socket.user.username}` }); // still running
+                socket.emit("serverStatus", { running: true, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}` }); // still running
                 return;
             }
             socket.emit("serverStatus", { running: false, liveServer: null });
