@@ -3,7 +3,6 @@ import User from "../models/user.model.js";
 import sendToken from "../utils/token_fns/sendAuthTokens.js";
 import catchAsync from "../utils/catchAsync.js";
 import axios from "axios";
-import RefreshToken from "../models/refreshToken.model.js";
 import AppError from "../utils/AppError.js";
 import { reNewAccessToken } from "../utils/token_fns/authTokens.js";
 
@@ -85,42 +84,39 @@ export const checkUsernameAbleablity = catchAsync(async (req, res, next) => {
 // Logout user
 // ========================
 export const logoutUser = catchAsync(async (req, res, next) => {
-  const { refresh_token } = req.cookies;
+  const isProduction = process.env.NODE_ENV === "production" && !req.headers.host?.includes("localhost");
+  const clearOptions = {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
+    path: "/",
+  };
 
-  if (refresh_token) {
-    await RefreshToken.deleteOne({ token: refresh_token });
-  }
+  ["access_token", "access-token", "accessToken",
+   "refresh_token", "refresh-token", "refesh-token", "refreshToken"].forEach((name) => {
+    res.clearCookie(name, clearOptions);
+  });
 
-  res
-    .clearCookie("refresh_token", { path: "/" })
-    .clearCookie("access_token", { path: "/" })
-    .json({
-      success: true,
-      message: "Logout successful",
-    });
+  res.json({
+    success: true,
+    message: "Logout successful",
+  });
 });
 
 // ========================
 // Get current logged-in user
 // ========================
 export const currentUser = catchAsync(async (req, res, next) => {
-  const user = await User.findById(req.user.id);
+  let user = await User.findById(req.user.id).catch(() => null);
+
+  if (!user && req.user?.username) {
+    user = req.user;
+  }
 
   if (!user) {
-    const options = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 0,
-      path: "/",
-    };
-
-    res.cookie("access_token", "", options);
-    res.cookie("refresh_token", "", options);
-
     return res.status(401).json({
       success: false,
-      message: "User not found. Tokens cleared.",
+      message: "User not found.",
     });
   }
 

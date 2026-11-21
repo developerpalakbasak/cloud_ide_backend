@@ -1,4 +1,6 @@
 import Docker from "dockerode";
+import path from "node:path";
+import fse from "fs-extra";
 import AppError from "./AppError.js";
 import getRunningContainers from "./helper_fns/runningContainers.js";
 import { runTraefik } from "./helper_fns/runTraefik.js";
@@ -10,20 +12,30 @@ import buildRunner from "../Dockerfiles/index.js";
 const docker = new Docker();
 
 export const startContainer = async (socket, language, framework, project) => {
-  // const imageMap = {
-  //   nodejs: process.env.NODE_IMAGE || "node:20-alpine",
-  //   typescript: process.env.TS_IMAGE || "node:20-ts",
-  //   python: process.env.PYTHON_IMAGE || "python:3.12-alpine",
-  //   express: process.env.EXPRESS_IMAGE || "express-runner:latest",
-  //   "html-css-js": null,
-  // };
-
   const dockerImage = framework ? imageMap[framework] : imageMap[language];
 
   if (!dockerImage) {
     socket.emit("containerStarted", { success: false, message: "No container needed for static project" });
     framework && socket.emit("serverStatus", { running: false, liveServer: null });
     return null;
+  }
+
+  // 1️⃣ Ensure user project folder exists and copy from demo folder if empty
+  try {
+    const userFolder = path.join(process.env.ROOT_VOL_DIR, socket.user.username);
+    const projectFolder = path.join(userFolder, project);
+    const templateType = framework || language || "express";
+    const demoFolder = path.join(process.env.ROOT_VOL_DIR, "demo", templateType);
+
+    await fse.ensureDir(projectFolder);
+    const files = await fse.readdir(projectFolder);
+    if (files.length === 0 && (await fse.pathExists(demoFolder))) {
+      console.log(`📁 Copying demo template from ${demoFolder} to ${projectFolder}...`);
+      await fse.copy(demoFolder, projectFolder);
+      console.log(`✅ Demo template copied successfully.`);
+    }
+  } catch (copyErr) {
+    console.warn(`⚠️ Warning checking/copying demo folder:`, copyErr.message);
   }
 
   try {
@@ -37,22 +49,27 @@ export const startContainer = async (socket, language, framework, project) => {
       const hasTraefik = runningContainerImages.some(image => image.includes('traefik'));
       // if traefik not running
       if (!hasTraefik) {
-
-        const dockerImage = process.env.TRAEFIK_IMAGE
+        const traefikImage = process.env.TRAEFIK_IMAGE || "traefik:v3";
         // need to start/create traefik container
-        const images = await docker.listImages();
+        const images = await docker.listImages().catch(() => []);
         const imageExists = images.some(img =>
-          img.RepoTags && img.RepoTags.includes(dockerImage)
+          img.RepoTags && img.RepoTags.includes(traefikImage)
         );
 
         if (!imageExists) {
-          console.log(`⬇️ Pulling Docker image: ${dockerImage}...`);
-          await pullDockerImage(dockerImage);
-          console.log(`✅ Docker image pulled: ${dockerImage}`);
+          console.log(`⬇️ Pulling Docker image: ${traefikImage}...`);
+          try {
+            await pullDockerImage(traefikImage);
+            console.log(`✅ Docker image pulled: ${traefikImage}`);
+          } catch (pullErr) {
+            console.warn(`⚠️ Could not pull ${traefikImage}:`, pullErr.message);
+          }
         }
 
         // run traefik container for reverse proxy
-        await runTraefik();
+        await runTraefik().catch((err) => {
+          console.warn("⚠️ Traefik start warning:", err.message);
+        });
       }
     }
 
@@ -71,21 +88,22 @@ export const startContainer = async (socket, language, framework, project) => {
       return existingContainer;
     }
 
-    const images = await docker.listImages();
+    const images = await docker.listImages().catch(() => []);
     const imageExists = images.some(img =>
       img.RepoTags && img.RepoTags.includes(dockerImage)
     );
 
     if (!imageExists) {
-      console.log(`⬇️ Pulling Docker image: ${dockerImage}...`);
-      // build image
+      // Build local runner image from Dockerfiles, do not pull from dockerhub
       if (Object.values(imageMap).includes(dockerImage)) {
+        console.log(`🔨 Building local runner image: ${dockerImage}...`);
         await buildRunner();
       } else {
+        console.log(`⬇️ Pulling Docker image: ${dockerImage}...`);
         await pullDockerImage(dockerImage);
       }
 
-      console.log(`✅ Docker image pulled: ${dockerImage}`);
+      console.log(`✅ Docker image ready: ${dockerImage}`);
     }
 
     // 2️⃣ Create a new container if not found

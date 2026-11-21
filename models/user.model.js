@@ -61,9 +61,16 @@ const userSchema = new mongoose.Schema(
 // Generate Refresh Token
 userSchema.methods.generateRefreshToken = function () {
   const refreshToken = jwt.sign(
-    { id: this._id },
+    {
+      id: this._id,
+      username: this.username,
+      name: this.name,
+      avatar: this.avatar,
+      email: this.email,
+      isVerified: this.isVerified,
+    },
     process.env.JWT_SECRET_REFRESH_TOKEN,
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRE }
+    { expiresIn: process.env.REFRESH_TOKEN_EXPIRE || "7d" }
   );
   return refreshToken;
 };

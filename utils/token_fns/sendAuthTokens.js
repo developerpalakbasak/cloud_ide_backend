@@ -1,31 +1,25 @@
-import { saveRefreshToken } from "./saveRefreshToken.js";
-
-
 const sendToken = async (user, statusCode, islogin, isOauth, req, res) => {
-
-    // Generate and save refresh token
-    const refresh_token = await saveRefreshToken(user, req);
+    // Generate stateless refresh token (no session stored on server)
+    const refresh_token = user.generateRefreshToken();
 
     // Generate access token
     const access_token = user.generateAccessToken();
 
-
-
-    const isProduction = process.env.NODE_ENV === "production";
+    const isProduction = process.env.NODE_ENV === "production" && !req?.headers?.host?.includes("localhost");
 
     const optionsRefreshToken = {
-        expires: new Date(Date.now() + Number(process.env.REFRESH_COOKIE_VALIDITY) * 24 * 60 * 60 * 1000),
+        expires: new Date(Date.now() + Number(process.env.REFRESH_COOKIE_VALIDITY || 7) * 24 * 60 * 60 * 1000),
         httpOnly: true,                 // prevents JS access
-        secure: isProduction,           // only send over HTTPS
-        sameSite: 'strict',             // CSRF protection for same-site requests
+        secure: isProduction,           // only send over HTTPS in production
+        sameSite: isProduction ? 'none' : 'lax', // Lax for local cross-origin, none for cross-site prod
         path: '/',
     };
 
     const optionsAccessToken = {
-        expires: new Date(Date.now() + Number(process.env.ACCESS_COOKIE_VALIDITY) * 60 * 1000),
+        expires: new Date(Date.now() + Number(process.env.ACCESS_COOKIE_VALIDITY || 15) * 60 * 1000),
         httpOnly: true,
         secure: isProduction,
-        sameSite: 'strict',
+        sameSite: isProduction ? 'none' : 'lax',
         path: '/',
     };
 

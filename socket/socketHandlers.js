@@ -10,7 +10,17 @@ import { removeTraefikContainer } from "../utils/helper_fns/removeTraefikContain
 
 
 
-// helper fn
+// helper fns
+const getLiveServerUrl = (project, username) => {
+    const protocol = process.env.PROTOCOL || "http";
+    const host = process.env.TRAEFIK_HOST || "localhost";
+    const port = process.env.TRAEFIK_HOST_PORT && process.env.TRAEFIK_HOST_PORT !== "80" && process.env.TRAEFIK_HOST_PORT !== "443"
+        ? `:${process.env.TRAEFIK_HOST_PORT}`
+        : "";
+    const prefix = process.env.TRAEFIK_HOST_PREFIX ? `/${process.env.TRAEFIK_HOST_PREFIX}` : "";
+    return `${protocol}://${host}${port}${prefix}/${project}_${username}`;
+};
+
 const serverControls = async (container, sh) => {
     console.log(`executing${sh}`)
     const exec = await container.exec({
@@ -104,7 +114,10 @@ export const handleStartServer = async (socket, userContainers, data) => {
 
         exec.start({ hijack: true, stdin: false }, (err, stream) => {
             if (err) throw err;
-            socket.emit("serverStatus", { running: true, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}` });
+            socket.emit("serverStatus", {
+                running: true,
+                liveServer: getLiveServerUrl(data.project, socket.user.username),
+            });
         });
 
 
@@ -134,12 +147,15 @@ export const handleRestartServer = async (socket, userContainers, data) => {
             console.log("Server restarted successfully");
             socket.emit("serverStatus", {
                 running: true,
-                liveServer:`${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}`,
+                liveServer: getLiveServerUrl(data.project, socket.user.username),
             });
         });
     } catch (error) {
         console.error("Error restarting container:", error);
-        socket.emit("serverStatus", { running: false, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}` });
+        socket.emit("serverStatus", {
+            running: false,
+            liveServer: null,
+        });
     }
 };
 
@@ -159,14 +175,20 @@ export const handleStopServer = async (socket, userContainers, data) => {
         exec.start({ hijack: true, stdin: false }, (err, stream) => {
             if (err) {
                 console.error("Stop failed:", err);
-                socket.emit("serverStatus", { running: true, liveServer: `${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST}/${process.env.TRAEFIK_HOST_PREFIX}/${data.project}_${socket.user.username}` }); // still running
+                socket.emit("serverStatus", {
+                    running: true,
+                    liveServer: getLiveServerUrl(data.project, socket.user.username),
+                });
                 return;
             }
             socket.emit("serverStatus", { running: false, liveServer: null });
         });
     } catch (error) {
         console.error("Error stopping container:", error);
-        socket.emit("serverStatus", { running: true, liveServer:`${process.env.PROTOCOL}://${process.env.TRAEFIK_HOST_URI}/${data.project}_${socket.user.username}` });
+        socket.emit("serverStatus", {
+            running: true,
+            liveServer: getLiveServerUrl(data.project, socket.user.username),
+        });
     }
 };
 
@@ -199,14 +221,6 @@ export const handleDisconnect = async (socket, userContainers, userConnections, 
 
     // No active connections → start cleanup timer
     console.log(`⌛ Starting cleanup timer for ${key}`);
-
-
-    if (socket.framework) {
-        await removeTraefikContainer(socket);
-        socket.emit("serverStatus", { running: false, liveServer: null });
-    }
-
-
 
     // Clear any existing timer just in case
     if (disconnectTimers.has(key)) {

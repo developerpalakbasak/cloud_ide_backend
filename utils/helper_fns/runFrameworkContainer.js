@@ -13,6 +13,8 @@ const docker = new Docker();
  * @returns {Promise<Docker.Container>}
  */
 export default async function runFrameworkContainer({ dockerImage, containerName, username, project, port = 8000 }) {
+  const prefix = process.env.TRAEFIK_HOST_PREFIX ? `/${process.env.TRAEFIK_HOST_PREFIX}` : "";
+  const pathPrefix = `${prefix}/${containerName}`;
 
   const container = await docker.createContainer({
     Image: dockerImage,
@@ -23,7 +25,7 @@ export default async function runFrameworkContainer({ dockerImage, containerName
     Env: ["NODE_ENV=production"],
     Labels: {
       "traefik.enable": "true",
-      [`traefik.http.routers.${containerName}.rule`]: `PathPrefix("/${containerName}")`,
+      [`traefik.http.routers.${containerName}.rule`]: `PathPrefix("${pathPrefix}")`,
 
       [`traefik.http.services.${containerName}.loadbalancer.server.port`]: `${port}`,
 
@@ -32,7 +34,7 @@ export default async function runFrameworkContainer({ dockerImage, containerName
         `${containerName}-strip`,
 
       [`traefik.http.middlewares.${containerName}-strip.stripprefix.prefixes`]:
-        `/${containerName}`,
+        `${pathPrefix}`,
         
     },
     HostConfig: {

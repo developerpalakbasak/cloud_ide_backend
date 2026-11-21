@@ -1,11 +1,10 @@
-import Docker from "dockerode"
+import Docker from "dockerode";
 import getRunningContainers from "./runningContainers.js";
 
-const docker = Docker()
+const docker = new Docker();
 
 export async function removeTraefikContainer(socket) {
     const runningContainers = await getRunningContainers();
-    const runningContainerImages = runningContainers.map(container => container.image);
 
     const traefikContainer = runningContainers.find(
         container => container.image && container.image.includes("traefik")
@@ -14,11 +13,10 @@ export async function removeTraefikContainer(socket) {
         container => container.image && container.image.includes("express")
     );
 
-    if (socket.framework && runningContainerImages.length <= 2 && traefikContainer && !expressContainer) {
-        await stopAndRemoveContainer(traefikContainer.id)
+    // Only stop Traefik if there are no active express runner containers
+    if (socket.framework && traefikContainer && !expressContainer) {
+        await stopAndRemoveContainer(traefikContainer.id);
     }
-
-
 }
 
 

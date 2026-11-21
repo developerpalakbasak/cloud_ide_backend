@@ -9,31 +9,50 @@ const docker = new Docker();
 export async function runTraefik() {
   const containerName = "traefik";
 
-  const TRAEFIK_PORT = process.env.TRAEFIK_HOST_PORT || "80";
-  const DASHBOARD_PORT = process.env.TRAEFIK_DASHBOARD_PORT || "8080"
+  const TRAEFIK_PORT = process.env.TRAEFIK_HOST_PORT || "5000";
+
+  // Ensure traefik_net network exists
+  const networks = await docker.listNetworks().catch(() => []);
+  const hasNet = networks.some(n => n.Name === "traefik_net");
+  if (!hasNet) {
+    try {
+      await docker.createNetwork({ Name: "traefik_net", Driver: "bridge" });
+      console.log("Created docker network: traefik_net");
+    } catch (netErr) {
+      console.warn("Could not create traefik_net network:", netErr.message);
+    }
+  }
 
   const containers = await docker.listContainers({ all: true });
   const existing = containers.find(c => c.Names.includes(`/${containerName}`));
 
   if (existing) {
     const container = docker.getContainer(existing.Id);
-    await container.start().catch(() => { });
-    // console.log("Traefik container already exists. Started if it was stopped.");
-    return container;
+    if (existing.State === "running") {
+      return container;
+    }
+    try {
+      await container.start();
+      console.log("Traefik container started from existing.");
+      return container;
+    } catch (err) {
+      console.warn("Existing Traefik container failed to start, recreating:", err.message);
+      await container.remove({ force: true }).catch(() => {});
+    }
   }
 
-  // Create Traefik container
+  const traefikImage = process.env.TRAEFIK_IMAGE || "traefik:v3";
+
+  // Create Traefik container: Traefik listens on :80 internally, mapped to TRAEFIK_PORT on host
   const container = await docker.createContainer({
-    Image: "traefik:v3",
+    Image: traefikImage,
     name: containerName,
 
     Cmd: [
-      `--entrypoints.web.address=:${TRAEFIK_PORT}`,
-      "--providers.docker",
-      // `--entrypoints.websecure.address=:443`,
-      // "--api.insecure=true",     // Enable dashboard without authentication
-      // "--api.dashboard=true" 
-      "--api=false"                 //safety disable dashboard 
+      "--entrypoints.web.address=:80",
+      "--providers.docker=true",
+      "--providers.docker.exposedbydefault=false",
+      "--providers.docker.network=traefik_net",
     ],
 
     HostConfig: {
@@ -41,18 +60,19 @@ export async function runTraefik() {
       Binds: ["/var/run/docker.sock:/var/run/docker.sock"],
 
       PortBindings: {
-        [`${TRAEFIK_PORT}/tcp`]: [{ HostPort: TRAEFIK_PORT }],
-        [`${DASHBOARD_PORT}/tcp`]: [{ HostPort: DASHBOARD_PORT }]
-      }
+        "80/tcp": [{ HostPort: String(TRAEFIK_PORT) }],
+      },
+      RestartPolicy: {
+        Name: "unless-stopped",
+      },
     },
 
     ExposedPorts: {
-      [`${TRAEFIK_PORT}/tcp`]: {},
-      [`${DASHBOARD_PORT}/tcp`]: {}
-    }
+      "80/tcp": {},
+    },
   });
 
   await container.start();
-  console.log(`Traefik started on port ${TRAEFIK_PORT}!`);
+  console.log(`Traefik started and listening on host port ${TRAEFIK_PORT}!`);
   return container;
 }

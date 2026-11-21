@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import "dotenv/config";
+import Docker from "dockerode";
 import Project from "../models/project.model.js";
 import slugify from "slugify";
 import fse from "fs-extra";
@@ -8,6 +9,7 @@ import catchAsync from "../utils/catchAsync.js";
 import { generateFileTree } from "../utils/generateFileTree.js";
 import AppError from "../utils/AppError.js";
 
+const docker = new Docker();
 const ROOT_VOL_DIR = process.env.ROOT_VOL_DIR;
 
 export const getTree = catchAsync(async (req, res, next) => {
@@ -110,15 +112,54 @@ export const deleteProject = catchAsync(async (req, res, next) => {
     return next(new AppError("Unauthorized", 401));
   }
 
+  // 1️⃣ Stop & remove project container if running
+  try {
+    const containerName = `${project.slug}_${user.username}`;
+    const containers = await docker.listContainers({ all: true });
+    const existing = containers.find(c => c.Names.includes(`/${containerName}`));
+    if (existing) {
+      const container = docker.getContainer(existing.Id);
+      if (existing.State === "running") {
+        await container.stop().catch(() => {});
+      }
+      await container.remove({ force: true }).catch(() => {});
+      console.log(`Container ${containerName} stopped and removed.`);
+    }
+  } catch (dockerErr) {
+    console.warn("Docker container cleanup warning:", dockerErr.message);
+  }
+
+  // 2️⃣ Delete project directory (with Docker fallback for permission issues)
   if (project.volumePath) {
     try {
       await fse.remove(project.volumePath);
       console.log("Folder deleted:", project.volumePath);
     } catch (err) {
-      console.error("Error deleting folder:", err);
-      return next(new AppError("Failed to delete", 401));
+      if (err.code === "EACCES" || err.code === "EPERM") {
+        try {
+          const cleaner = await docker.createContainer({
+            Image: process.env.NODE_IMAGE || "node:20-alpine",
+            Cmd: ["sh", "-c", "rm -rf /target/* /target/.* 2>/dev/null || true"],
+            HostConfig: {
+              Binds: [`${project.volumePath}:/target`],
+              AutoRemove: true,
+            },
+          });
+          await cleaner.start();
+          await cleaner.wait();
+          await fse.remove(project.volumePath);
+          console.log("Folder cleaned and deleted via Docker fallback:", project.volumePath);
+        } catch (fallbackErr) {
+          console.error("Error deleting folder with Docker fallback:", fallbackErr);
+          return next(new AppError("Failed to delete project folder", 500));
+        }
+      } else {
+        console.error("Error deleting folder:", err);
+        return next(new AppError("Failed to delete project folder", 500));
+      }
     }
   }
+
   await Project.findByIdAndDelete(id);
 
   res.status(200).json({
@@ -206,8 +247,15 @@ export const getTreeFromSlug = catchAsync(async (req, res, next) => {
   const project = await Project.findOne({ owner: user.id, slug });
   if (!project) return next(new AppError("Project not found", 404));
 
-  const exists = await fs.stat(project.volumePath).catch(() => false);
-  if (!exists) return next(new AppError("Project not exists", 404));
+  let exists = await fs.stat(project.volumePath).catch(() => false);
+  if (!exists) {
+    const templateType = project.framework || project.language || "express";
+    const demoFolder = path.join(ROOT_VOL_DIR, "demo", templateType);
+    await fse.ensureDir(project.volumePath);
+    if (await fse.pathExists(demoFolder)) {
+      await fse.copy(demoFolder, project.volumePath);
+    }
+  }
 
   const tree = await generateFileTree(project.volumePath);
   if (!tree) return next(new AppError("Project not exists", 404));
